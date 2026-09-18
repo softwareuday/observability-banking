@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # ---- Application Services ----
+  money-transfer-service:
+    build: ./money-transfer-service
+    container_name: money-transfer-service
+    ports: ["8101:8101"]
+    environment:
+      OTEL_SERVICE_NAME: money-transfer-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on: [otel-collector]
+    networks: [obs-net]
+
+  account-service:
+    build: ./account-service
+    container_name: account-service
+    ports: ["8082:8082"]
+    environment:
+      OTEL_SERVICE_NAME: account-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on: [otel-collector]
+    networks: [obs-net]
+
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    ports: ["8084:8084"]
+    environment:
+      OTEL_SERVICE_NAME: notification-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on: [otel-collector]
+    networks: [obs-net]
+
+  # ---- Observability Stack ----
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.95.0
+    container_name: otel-collector
+    volumes:
+      - ./otel-collector/otel-collector-config.yml:/etc/otelcol-contrib/config.yml
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    networks: [obs-net]
+
+  zipkin:
+    image: openzipkin/zipkin:3
+    container_name: zipkin
+    ports: ["9411:9411"]
+    networks: [obs-net]
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+    ports: ["9090:9090"]
+    networks: [obs-net]
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports: ["9093:9093"]
+    networks: [obs-net]
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+    ports: ["3100:3100"]
+    command: -config.file=/etc/loki/local-config.yaml
+    networks: [obs-net]
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on: [loki]
+    networks: [obs-net]
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on: [prometheus, loki, zipkin]
+    networks: [obs-net]
+
+networks:
+  obs-net:
+    driver: bridge

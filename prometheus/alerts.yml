@@ -1,0 +1,63 @@
+groups:
+  - name: banking-critical
+    interval: 30s
+    rules:
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) by (application)
+          /
+          sum(rate(http_server_requests_seconds_count[5m])) by (application) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: banking-platform
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.application }}"
+          description: "Error rate above 5% for 2 minutes. Investigate immediately."
+
+      - alert: MoneyTransferFailureSpike
+        expr: |
+          sum(rate(http_server_requests_seconds_count{application="money-transfer-service",status=~"5.."}[2m])) > 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Money transfer failures spiking"
+          description: "More than 1 failure/sec in the last 2 minutes."
+
+      - alert: CircuitBreakerOpen
+        expr: resilience4j_circuitbreaker_state{state="open"} == 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker OPEN on {{ $labels.name }}"
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (le, application)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P99 latency > 2s on {{ $labels.application }}"
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is DOWN"
+
+      - alert: HighMemoryUsage
+        expr: |
+          jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Heap memory > 85% on {{ $labels.application }}"
